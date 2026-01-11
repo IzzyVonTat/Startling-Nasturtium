@@ -1,0 +1,213 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Loop Me (GraphHopper Edition)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+    }
+    #map {
+      height: 100vh;
+    }
+    .status {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      font-size: 14px;
+    }
+    .bar {
+      position: absolute;
+      top: 10px;
+      left: 50px;
+      right: 10px;
+      z-index: 1000;
+      display: flex;
+      gap: 8px;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+    }
+    .bar button {
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 12px;
+      padding: 10px 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      font-size: 14px;
+    }
+    .bar button.primary {
+      background: #111;
+      color: #fff;
+      border-color: #111;
+    }
+    .bar button:active {
+      transform: translateY(1px);
+    }
+    .bar::-webkit-scrollbar {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<div class="bar">
+  <button onclick="selectDistance(6)">6 mi</button>
+  <button onclick="selectDistance(9)">9 mi</button>
+  <button onclick="selectDistance(12)">12 mi</button>
+  <button onclick="selectDistance(15)">15 mi</button>
+  <button class="primary" onclick="generateLoop()">Loop me</button>
+  <button id="followBtn" onclick="toggleFollow()">📍 Follow Me</button>
+</div>
+
+<div id="map"></div>
+<div class="status" id="status">Loading…</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const GH_API_KEY = "8b7bdd6e-0343-4430-931c-242dea8d7b20";
+  let lastPosition = null;
+  let routeLine = null;
+
+  const statusEl = document.getElementById("status");
+  const setStatus = (t) => statusEl.textContent = t;
+
+  const map = L.map("map").setView([55.9533, -3.1883], 12);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors"
+  }).addTo(map);
+
+  let marker = null;
+  let accuracyCircle = null;
+  let firstFix = true;
+  let followUser = true;
+
+  function toggleFollow() {
+    followUser = !followUser;
+    if (followUser) firstFix = true;
+
+    setStatus(`Follow mode: ${followUser ? 'ON' : 'OFF'}`);
+
+    const btn = document.getElementById("followBtn");
+    btn.classList.toggle("primary", followUser);
+  }
+
+  if ("geolocation" in navigator) {
+    setStatus("Tracking your location…");
+
+    navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        const accuracy = pos.coords.accuracy;
+
+        lastPosition = [lat, lon];
+
+        if (followUser && firstFix) {
+          map.setView([lat, lon], 18);
+          firstFix = false;
+        }
+
+        if (marker) map.removeLayer(marker);
+        marker = L.marker([lat, lon])
+          .addTo(map)
+          .bindPopup("You are here");
+
+        if (accuracyCircle) map.removeLayer(accuracyCircle);
+        accuracyCircle = L.circle([lat, lon], {
+          radius: Math.max(accuracy, 15),
+          color: "#3b82f6",
+          fillColor: "#3b82f6",
+          fillOpacity: 0.12,
+          weight: 2
+        }).addTo(map);
+
+        setStatus(`Tracking (±${Math.round(accuracy)}m)`);
+      },
+      () => setStatus("Could not track location"),
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 10000
+      }
+    );
+  } else {
+    setStatus("Geolocation not supported");
+  }
+
+  let selectedMiles = 9;
+  let minMiles = 7.2;
+  let maxMiles = 10.8;
+
+  function selectDistance(m) {
+    selectedMiles = m;
+    const tolerance = 0.2;
+    minMiles = m * (1 - tolerance);
+    maxMiles = m * (1 + tolerance);
+    setStatus(`Distance set: ${m} miles (range: ${minMiles.toFixed(2)}–${maxMiles.toFixed(2)})`);
+  }
+
+  function generateLoop() {
+  if (!lastPosition) {
+    setStatus("Waiting for GPS fix…");
+    return;
+  }
+
+  const [lat, lon] = lastPosition;
+  const distanceMeters = selectedMiles * 1609.34;
+  const degreesPerMeter = 1 / 111139; // VERY rough estimate
+  const offset = (distanceMeters / 3) * degreesPerMeter; // Divide by 3 for triangle legs
+
+
+  // Triangle points
+  const A = [lat, lon];
+  const B = [lat + offset, lon + offset];
+  const C = [lat + offset, lon - offset];
+
+  const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${A[0]},${A[1]}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
+
+  console.log("🚀 Sending triangle route request to:", url);
+
+  fetch(url)
+    .then(res => res.json())
+    .then(data => {
+      if (!data.paths || data.paths.length === 0) {
+        setStatus("No route found.");
+        return;
+      }
+
+      const coords = data.paths[0].points.coordinates;
+      const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+
+      if (routeLine) map.removeLayer(routeLine);
+
+      routeLine = L.polyline(latlngs, {
+        color: "#10b981",
+        weight: 4
+      }).addTo(map);
+
+      map.fitBounds(routeLine.getBounds());
+      setStatus("Triangle route loaded!");
+    })
+    .catch((err) => {
+      console.error("Routing error:", err);
+      setStatus("Routing failed.");
+    });
+}
+
+</script>
+
+</body>
+</html>
