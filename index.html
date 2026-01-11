@@ -82,194 +82,134 @@
 <script>
   const GH_API_KEY = "8b7bdd6e-0343-4430-931c-242dea8d7b20";
   let lastPosition = null;
-  let routeLine = null;
+let routeLine = null;
+let selectedDistance = 6;
+const maxAttempts = 5;
+const offset = 0.03; // ~2 miles
+const statusEl = document.getElementById("status");
+const setStatus = (text) => statusEl.textContent = text;
 
-  const statusEl = document.getElementById("status");
-  const setStatus = (t) => statusEl.textContent = t;
+const map = L.map("map").setView([56.55, -3.27], 13);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19
+}).addTo(map);
 
-  const map = L.map("map").setView([55.9533, -3.1883], 12);
-  map.options.pan = { animate: true, duration: 1 };
+// No-go zone: [southWestLatLng, northEastLatLng]
+const noGoZone = [
+  [56.550476, -3.283458],
+  [56.563270, -3.304063]
+];
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap contributors"
-  }).addTo(map);
+// Update selected distance from button click
+function selectDistance(miles) {
+  selectedDistance = miles;
+  console.log(`📏 Distance set to ${miles} mi`);
+}
 
-  let marker = null;
-  let accuracyCircle = null;
-  let firstFix = true;
-  let followUser = true;
+// Checks if any route point falls within the danger zone rectangle
+function routeIntersectsNoGoZone(latlngs) {
+  const [latMin, lonMin] = [
+    Math.min(noGoZone[0][0], noGoZone[1][0]),
+    Math.min(noGoZone[0][1], noGoZone[1][1])
+  ];
+  const [latMax, lonMax] = [
+    Math.max(noGoZone[0][0], noGoZone[1][0]),
+    Math.max(noGoZone[0][1], noGoZone[1][1])
+  ];
 
-  function toggleFollow() {
-    followUser = !followUser;
-    if (followUser) firstFix = true;
-    setStatus(`Follow mode: ${followUser ? 'ON' : 'OFF'}`);
-    document.getElementById("followBtn").classList.toggle("primary", followUser);
-  }
+  console.log("🧭 Checking latlngs against no-go zone:", latlngs);
 
-  if ("geolocation" in navigator) {
-    setStatus("Tracking your location…");
-    navigator.geolocation.watchPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        const accuracy = pos.coords.accuracy;
-        lastPosition = [lat, lon];
-
-        if (followUser) {
-          if (firstFix) {
-            map.setView([lat, lon], 18);
-            firstFix = false;
-          } else {
-            map.panTo([lat, lon], { animate: true });
-          }
-        }
-
-        if (marker) map.removeLayer(marker);
-        marker = L.marker([lat, lon]).addTo(map).bindPopup("You are here");
-
-        if (accuracyCircle) map.removeLayer(accuracyCircle);
-        accuracyCircle = L.circle([lat, lon], {
-          radius: Math.max(accuracy, 15),
-          color: "#3b82f6",
-          fillColor: "#3b82f6",
-          fillOpacity: 0.12,
-          weight: 2
-        }).addTo(map);
-
-        setStatus(`Tracking (±${Math.round(accuracy)}m)`);
-      },
-      () => setStatus("Could not track location"),
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
-    );
-  } else {
-    setStatus("Geolocation not supported");
-  }
-
-  let selectedMiles = 9;
-  let minMiles = 7.2;
-  let maxMiles = 10.8;
-
-  function selectDistance(m) {
-    selectedMiles = m;
-    const tolerance = 0.2;
-    minMiles = m * (1 - tolerance);
-    maxMiles = m * (1 + tolerance);
-    setStatus(`Distance set: ${m} miles (range: ${minMiles.toFixed(2)}–${maxMiles.toFixed(2)})`);
-  }
-
-  // 🚫 No-go zone
-  const noGoZone = {
-    north: 56.563270,
-    south: 56.550476,
-    west: -3.304063,
-    east: -3.283458
-  };
-
-  function routeIntersectsNoGoZone(latlngs) {
-    console.log("Checking latlngs against no-go zone:", latlngs);
-    return latlngs.some(([lat, lon]) => {
-      const inside =
-        lat >= noGoZone.south &&
-        lat <= noGoZone.north &&
-        lon >= noGoZone.west &&
-        lon <= noGoZone.east;
-
-      if (inside) {
-        alert("🚫 Death Road Detected at: " + lat + ", " + lon);
-      }
-      return inside;
-    });
-  }
-
-  function generateLoop() {
-    if (!lastPosition) {
-      setStatus("Waiting for GPS fix…");
-      return;
+  return latlngs.some(([lat, lon]) => {
+    const inside =
+      lat >= latMin && lat <= latMax &&
+      lon >= lonMin && lon <= lonMax;
+    if (inside) {
+      console.log("🚫 Route intersects no-go zone at:", lat, lon);
     }
+    return inside;
+  });
+}
 
-    // Clear previous route and popup
-    if (routeLine) {
-      map.removeLayer(routeLine);
-      routeLine = null;
-    }
-    map.closePopup();
-
-    const [lat, lon] = lastPosition;
-    const distanceMeters = selectedMiles * 1609.34;
-    const degreesPerMeter = 1 / 111139;
-    const offset = (distanceMeters / 4.5) * degreesPerMeter; // tighter triangle
-    const A = [lat, lon];
-    const maxAttempts = 5;
-
-   function tryLoop(attempt = 1) {
+function tryLoop(lat, lon, attempt = 1) {
   if (attempt > maxAttempts) {
     setStatus("🚫 Failed to generate route. All attempts hit no-go zone.");
     return;
   }
 
-  // Scale offset based on user-selected distance
-  const baseDistance =    parseFloat(document.querySelector('input[name="miles"]:checked').value); // e.g., 6 or 9
-  const offset = baseDistance / 69; // rough degrees per mile (1° ≈ 69mi)
+  const jitter = offset * (selectedDistance / 6); // scale jitter by distance
+  const jitterLat = Math.random() * jitter;
+  const jitterLon = Math.random() * jitter;
 
-  // Slight randomness, up to ~20%
-  const jitterLat = offset * (0.8 + Math.random() * 0.4);
-  const jitterLon = offset * (0.8 + Math.random() * 0.4);
-
-  // Triangle generation
-  const B = [lat + jitterLat, lon + jitterLon];
-  const C = [lat + jitterLat, lon - jitterLon];
+  const B = [lat - jitterLat, lon + jitterLon];
+  const C = [lat + jitterLat, lon + jitterLon];
 
   const url = `https://graphhopper.com/api/1/route?point=${lat},${lon}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${lat},${lon}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
 
-  console.log(`🌀 Attempt ${attempt}: Trying route from ${lat},${lon} → ${B[0]},${B[1]} → ${C[0]},${C[1]}`);
+  console.log(`🌀 Attempt ${attempt}: Trying route from ${lat},${lon} → ${B} → ${C}`);
 
   fetch(url)
     .then(res => res.json())
     .then(data => {
       if (!data.paths || data.paths.length === 0) {
-        console.warn("⚠️ No route found. Retrying...");
-        setTimeout(() => tryLoop(attempt + 1), 1000);
+        setStatus("No route found.");
         return;
       }
 
       const coords = data.paths[0].points.coordinates;
       const latlngs = coords.map(([lon, lat]) => [lat, lon]);
 
-      console.log("🧭 Checking route for no-go zone...");
       if (routeIntersectsNoGoZone(latlngs)) {
         console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
-        setTimeout(() => tryLoop(attempt + 1), 1000);
+        tryLoop(lat, lon, attempt + 1);
         return;
       }
 
-      const distance = (data.paths[0].distance / 1609.34).toFixed(2);
-      const midPoint = latlngs[Math.floor(latlngs.length / 2)];
+      const distanceMiles = (data.paths[0].distance / 1609.34).toFixed(2);
 
+      if (routeLine) map.removeLayer(routeLine);
       routeLine = L.polyline(latlngs, {
         color: "#10b981",
         weight: 4
       }).addTo(map);
 
-      map.fitBounds(routeLine.getBounds());
+      const midPoint = latlngs[Math.floor(latlngs.length / 2)];
 
       L.popup({
         closeButton: false,
         autoClose: false,
         className: 'distance-popup'
       })
-      .setLatLng(midPoint)
-      .setContent(`${distance} mi`)
-      .openOn(map);
+        .setLatLng(midPoint)
+        .setContent(`${distanceMiles} mi`)
+        .openOn(map);
 
-      setStatus(`✅ Route loaded! Distance: ${distance} mi`);
+      map.fitBounds(routeLine.getBounds());
+      setStatus(`✅ Loop generated! Distance: ${distanceMiles} mi`);
     })
-    .catch((err) => {
+    .catch(err => {
       console.error("Routing error:", err);
       setStatus("Routing failed.");
     });
 }
-    tryLoop();
+
+function generateLoop() {
+  if (!lastPosition) {
+    setStatus("⚠️ Waiting for GPS fix...");
+    return;
   }
+
+  const { latitude: lat, longitude: lon } = lastPosition.coords;
+  tryLoop(lat, lon, 1);
+}
+
+// Start GPS tracking
+navigator.geolocation.watchPosition(pos => {
+  lastPosition = pos;
+}, err => {
+  console.error("GPS error:", err);
+  setStatus("⚠️ GPS unavailable.");
+});
+}
 </script>
 </body>
 </html>
