@@ -176,7 +176,7 @@
     const B = [lat + offset, lon + offset];
     const C = [lat + offset, lon - offset];
 
-    const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${A[0]},${A[1]}&vehicle=foot&locale=en&points_encoded=false&ch.disable=true&key=${GH_API_KEY}`;
+    const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${A[0]},${A[1]}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
 
     fetch(url)
       .then(res => res.json())
