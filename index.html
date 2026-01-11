@@ -209,16 +209,16 @@
 
   // Bigger jitter range
   const jitterScale = offset * 2;
-  const jitterLat = (Math.random() - 0.5) * jitterScale;
-  const jitterLon = (Math.random() - 0.5) * jitterScale;
+  const jitterLat = Math.random() * offset;   // only positive (south/east)
+  const jitterLon = Math.random() * offset;
 
-  // Build points with forced shape variance
-  const B = [lat + offset + jitterLat, lon + offset + jitterLon];
-  const C = [lat + offset - jitterLat, lon - offset - jitterLon];
+  const B = [lat + jitterLat, lon - jitterLon]; // southeast
+  const C = [lat + jitterLat, lon + jitterLon]; // southwest
+
 
   const url = `https://graphhopper.com/api/1/route?point=${lat},${lon}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${lat},${lon}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
 
-  console.log(`🌀 Attempt ${attempt}: Trying route from ${lat},${lon} → ${B} → ${C}`);
+  console.log(`🌀 Attempt ${attempt}: Trying route from ${lat},${lon} → ${B[0]},${B[1]} → ${C[0]},${C[1]}`);
 
   fetch(url)
     .then(res => res.json())
