@@ -183,72 +183,84 @@
   });
 }
 
+function generateLoop(attempt = 0) {
+  if (!lastPosition) {
+    setStatus("Waiting for GPS fix…");
+    return;
+  }
 
-  function generateLoop() {
-    if (!lastPosition) {
-      setStatus("Waiting for GPS fix…");
-      return;
-    }
+  if (attempt > 4) {
+    setStatus("❌ Couldn't find safe loop. Try again.");
+    return;
+  }
 
-    const [lat, lon] = lastPosition;
-    const distanceMeters = selectedMiles * 1609.34;
-    const degreesPerMeter = 1 / 111139;
-    const offset = (distanceMeters / 3) * degreesPerMeter;
+  const [lat, lon] = lastPosition;
+  const distanceMeters = selectedMiles * 1609.34;
+  const degreesPerMeter = 1 / 111139;
+  const offset = (distanceMeters / 3) * degreesPerMeter;
 
-    const A = [lat, lon];
-    const B = [lat + offset, lon + offset];
-    const C = [lat + offset, lon - offset];
+  // 🔄 Rotate triangle each retry attempt
+  const angle = (attempt * 45 * Math.PI) / 180; // Rotate by 0, 45, 90, 135, etc.
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
 
-    const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${A[0]},${A[1]}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
+  const dx = offset;
+  const dy = offset;
 
-console.log("Attempting route with points:", A, B, C);
+  const B = [lat + (dx * cos - dy * sin), lon + (dx * sin + dy * cos)];
+  const C = [lat + (dx * cos + dy * sin), lon - (dx * sin - dy * cos)];
+  const A = [lat, lon];
 
+  console.log(`🔁 Attempt ${attempt + 1} — Trying points:`, A, B, C);
 
-    fetch(url)
-      .then(res => res.json())
-      .then(data => {
-        if (!data.paths || data.paths.length === 0) {
-          setStatus("No route found.");
-          return;
-        }
+  const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${A[0]},${A[1]}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
 
-        const coords = data.paths[0].points.coordinates;
-        const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+  fetch(url)
+    .then(res => res.json())
+    .then(data => {
+      if (!data.paths || data.paths.length === 0) {
+        console.warn("⚠️ No route found. Retrying...");
+        return generateLoop(attempt + 1);
+      }
 
-        // 👇 Block if route enters no-go zone
-        if (routeIntersectsNoGoZone(latlngs)) {
-          setStatus("⚠️ Route enters restricted zone. Try again.");
-          return;
-        }
+      const coords = data.paths[0].points.coordinates;
+      const latlngs = coords.map(([lon, lat]) => [lat, lon]);
 
-        const distance = (data.paths[0].distance / 1609.34).toFixed(2);
-        const midIndex = Math.floor(latlngs.length / 2);
-        const midPoint = latlngs[midIndex];
+      console.log("Checking latlngs against no-go zone:", latlngs);
 
-        if (routeLine) map.removeLayer(routeLine);
-        routeLine = L.polyline(latlngs, {
-          color: "#10b981",
-          weight: 4
-        }).addTo(map);
+      if (routeIntersectsNoGoZone(latlngs)) {
+        console.warn("🚫 Route enters danger zone. Retrying…");
+        return generateLoop(attempt + 1);
+      }
 
-        map.fitBounds(routeLine.getBounds());
+      const distance = (data.paths[0].distance / 1609.34).toFixed(2);
+      const midIndex = Math.floor(latlngs.length / 2);
+      const midPoint = latlngs[midIndex];
 
-        L.popup({
-          closeButton: false,
-          autoClose: false,
-          className: 'distance-popup'
-        })
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = L.polyline(latlngs, {
+        color: "#10b981",
+        weight: 4
+      }).addTo(map);
+
+      map.fitBounds(routeLine.getBounds());
+
+      L.popup({
+        closeButton: false,
+        autoClose: false,
+        className: 'distance-popup'
+      })
         .setLatLng(midPoint)
         .setContent(`${distance} mi`)
         .openOn(map);
 
-        setStatus(`Triangle route loaded! Distance: ${distance} mi`);
-      })
-      .catch((err) => {
-        console.error("Routing error:", err);
-        setStatus("Routing failed.");
-      });
-  }
+      setStatus(`Loop found! Distance: ${distance} mi`);
+    })
+    .catch((err) => {
+      console.error("Routing error:", err);
+      setStatus("Routing failed.");
+    });
+}
 </script>
 
 </body>
