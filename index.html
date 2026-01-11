@@ -115,10 +115,14 @@
 
         lastPosition = [lat, lon];
 
-        if (followUser && firstFix) {
-          map.setView([lat, lon], 18);
-          firstFix = false;
-        }
+        if (followUser) {
+          if (firstFix) {
+            map.setView([lat, lon], 18);
+            firstFix = false;
+        } else {
+          map.panTo([lat, lon], { animate: true });
+  }
+}
 
         if (marker) map.removeLayer(marker);
         marker = L.marker([lat, lon])
