@@ -2,14 +2,9 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Loop Me (GraphHopper Edition)</title>
+  <title>Startling Nasturtium</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  />
-
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     body {
       margin: 0;
@@ -58,6 +53,15 @@
     .bar::-webkit-scrollbar {
       display: none;
     }
+    .distance-popup {
+      background: #10b981;
+      color: white;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-weight: bold;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -68,6 +72,7 @@
   <button onclick="selectDistance(12)">12 mi</button>
   <button onclick="selectDistance(15)">15 mi</button>
   <button class="primary" onclick="generateLoop()">Loop me</button>
+  <button onclick="enableClickToLoop()">🎯 Loop to here</button>
   <button id="followBtn" onclick="toggleFollow()">📍 Follow Me</button>
 </div>
 
@@ -79,17 +84,14 @@
   const GH_API_KEY = "8b7bdd6e-0343-4430-931c-242dea8d7b20";
   let lastPosition = null;
   let routeLine = null;
+  let clickToLoopMode = false;
+  let clickMarker = null;
 
   const statusEl = document.getElementById("status");
   const setStatus = (t) => statusEl.textContent = t;
 
   const map = L.map("map").setView([55.9533, -3.1883], 12);
-
-// 👇 Customize pan animation duration
-map.options.pan = {
-  animate: true,
-  duration: 1  // seconds (default is ~0.25)
-};
+  map.options.pan = { animate: true, duration: 1 };
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap contributors"
@@ -103,37 +105,31 @@ map.options.pan = {
   function toggleFollow() {
     followUser = !followUser;
     if (followUser) firstFix = true;
-
     setStatus(`Follow mode: ${followUser ? 'ON' : 'OFF'}`);
-
     const btn = document.getElementById("followBtn");
     btn.classList.toggle("primary", followUser);
   }
 
   if ("geolocation" in navigator) {
     setStatus("Tracking your location…");
-
     navigator.geolocation.watchPosition(
       (pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         const accuracy = pos.coords.accuracy;
-
         lastPosition = [lat, lon];
 
         if (followUser) {
           if (firstFix) {
             map.setView([lat, lon], 18);
             firstFix = false;
-        } else {
-          map.panTo([lat, lon], { animate: true });
-  }
-}
+          } else {
+            map.panTo([lat, lon], { animate: true });
+          }
+        }
 
         if (marker) map.removeLayer(marker);
-        marker = L.marker([lat, lon])
-          .addTo(map)
-          .bindPopup("You are here");
+        marker = L.marker([lat, lon]).addTo(map).bindPopup("You are here");
 
         if (accuracyCircle) map.removeLayer(accuracyCircle);
         accuracyCircle = L.circle([lat, lon], {
@@ -147,11 +143,7 @@ map.options.pan = {
         setStatus(`Tracking (±${Math.round(accuracy)}m)`);
       },
       () => setStatus("Could not track location"),
-      {
-        enableHighAccuracy: true,
-        maximumAge: 5000,
-        timeout: 10000
-      }
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
     );
   } else {
     setStatus("Geolocation not supported");
@@ -170,58 +162,108 @@ map.options.pan = {
   }
 
   function generateLoop() {
-  if (!lastPosition) {
-    setStatus("Waiting for GPS fix…");
-    return;
+    if (!lastPosition) {
+      setStatus("Waiting for GPS fix…");
+      return;
+    }
+
+    const [lat, lon] = lastPosition;
+    const distanceMeters = selectedMiles * 1609.34;
+    const degreesPerMeter = 1 / 111139;
+    const offset = (distanceMeters / 3) * degreesPerMeter;
+
+    const A = [lat, lon];
+    const B = [lat + offset, lon + offset];
+    const C = [lat + offset, lon - offset];
+
+    const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${A[0]},${A[1]}&vehicle=foot&locale=en&points_encoded=false&ch.disable=true&key=${GH_API_KEY}`;
+
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        if (!data.paths || data.paths.length === 0) {
+          setStatus("No route found.");
+          return;
+        }
+
+        const coords = data.paths[0].points.coordinates;
+        const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+        const distanceMiles = (data.paths[0].distance / 1609.34).toFixed(2);
+        const midPoint = latlngs[Math.floor(latlngs.length / 2)];
+
+        if (routeLine) map.removeLayer(routeLine);
+        routeLine = L.polyline(latlngs, { color: "#10b981", weight: 4 }).addTo(map);
+        map.fitBounds(routeLine.getBounds());
+
+        L.popup({ closeButton: false, autoClose: false, className: 'distance-popup' })
+          .setLatLng(midPoint)
+          .setContent(`${distanceMiles} mi`)
+          .openOn(map);
+
+        setStatus(`Triangle route loaded! Distance: ${distanceMiles} mi`);
+      })
+      .catch((err) => {
+        console.error("Routing error:", err);
+        setStatus("Routing failed.");
+      });
   }
 
-  const [lat, lon] = lastPosition;
-  const distanceMeters = selectedMiles * 1609.34;
-  const degreesPerMeter = 1 / 111139; // VERY rough estimate
-  const offset = (distanceMeters / 3) * degreesPerMeter; // Divide by 3 for triangle legs
+  function enableClickToLoop() {
+    if (!lastPosition) {
+      setStatus("Need a GPS fix first.");
+      return;
+    }
+    clickToLoopMode = true;
+    setStatus("Click on the map to set your loop destination…");
+  }
 
+  map.on("click", function(e) {
+    if (!clickToLoopMode) return;
 
-  // Triangle points
-  const A = [lat, lon];
-  const B = [lat + offset, lon + offset];
-  const C = [lat + offset, lon - offset];
+    const dest = e.latlng;
 
-  const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${A[0]},${A[1]}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
+    if (clickMarker) map.removeLayer(clickMarker);
+    clickMarker = L.marker(dest, { title: "Destination" }).addTo(map);
 
-  console.log("🚀 Sending triangle route request to:", url);
+    const A = lastPosition;
+    const B = [dest.lat, dest.lng];
+    const C = lastPosition;
 
-  fetch(url)
-    .then(res => res.json())
-    .then(data => {
-      if (!data.paths || data.paths.length === 0) {
-        setStatus("No route found.");
-        return;
-      }
+    const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&vehicle=foot&locale=en&points_encoded=false&ch.disable=true&key=${GH_API_KEY}`;
 
-      const coords = data.paths[0].points.coordinates;
-      const latlngs = coords.map(([lon, lat]) => [lat, lon]);
-      
-      const distanceMeters = data.paths[0].distance;
-      const distanceMiles = (distanceMeters / 1609.34).toFixed(2);
+    setStatus("Requesting route to selected point…");
 
-      setStatus(`Route loaded! Distance: ${distanceMiles} mi`);
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        if (!data.paths || data.paths.length === 0) {
+          setStatus("No route found.");
+          return;
+        }
 
-      if (routeLine) map.removeLayer(routeLine);
+        const coords = data.paths[0].points.coordinates;
+        const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+        const distanceMiles = (data.paths[0].distance / 1609.34).toFixed(2);
+        const midPoint = latlngs[Math.floor(latlngs.length / 2)];
 
-      routeLine = L.polyline(latlngs, {
-        color: "#10b981",
-        weight: 4
-      }).addTo(map);
+        if (routeLine) map.removeLayer(routeLine);
+        routeLine = L.polyline(latlngs, { color: "#e11d48", weight: 4 }).addTo(map);
+        map.fitBounds(routeLine.getBounds());
 
-      map.fitBounds(routeLine.getBounds());
-      setStatus("Triangle route loaded!");
-    })
-    .catch((err) => {
-      console.error("Routing error:", err);
-      setStatus("Routing failed.");
-    });
-}
+        L.popup({ closeButton: false, autoClose: false, className: 'distance-popup' })
+          .setLatLng(midPoint)
+          .setContent(`${distanceMiles} mi`)
+          .openOn(map);
 
+        setStatus(`Custom loop loaded: ${distanceMiles} mi`);
+        clickToLoopMode = false;
+      })
+      .catch((err) => {
+        console.error("Routing error:", err);
+        setStatus("Routing failed.");
+        clickToLoopMode = false;
+      });
+  });
 </script>
 
 </body>
