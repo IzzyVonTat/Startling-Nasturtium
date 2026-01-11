@@ -201,20 +201,20 @@
     const A = [lat, lon];
     const maxAttempts = 5;
 
-   function tryLoop(attempt = 1) {
+function tryLoop(attempt = 1) {
   if (attempt > maxAttempts) {
     setStatus("🚫 Failed to generate route. All attempts hit no-go zone.");
     return;
   }
 
-  // Bigger jitter range
-  const jitterScale = offset * 2;
-  const jitterLat = Math.random() * offset;   // only positive (south/east)
-  const jitterLon = Math.random() * offset;
+  // Expanded jitter range with more varied triangle
+  const jitterLat = (Math.random() * 2 - 1) * offset * 1.8; // +/- latitude
+  const jitterLon = (Math.random() * 2 - 1) * offset * 1.8; // +/- longitude
+  const jitterLat2 = (Math.random() * 2 - 1) * offset * 1.8;
+  const jitterLon2 = (Math.random() * 2 - 1) * offset * 1.8;
 
-  const B = [lat + jitterLat, lon - jitterLon]; // southeast
-  const C = [lat + jitterLat, lon + jitterLon]; // southwest
-
+  const B = [lat + jitterLat, lon + jitterLon];
+  const C = [lat + jitterLat2, lon + jitterLon2];
 
   const url = `https://graphhopper.com/api/1/route?point=${lat},${lon}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${lat},${lon}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
 
@@ -265,6 +265,7 @@
       setStatus("Routing failed.");
     });
 }
+
     tryLoop();
   }
 </script>
