@@ -159,22 +159,30 @@
 
   // 🚫 No-go zone (Coupar Angus "death road" box)
   const noGoZone = {
-    north: 56.5498,
-    south: 56.5475,
-    west: -3.2725,
-    east: -3.2630
+    north: 56.563270,
+    south: 56.550476,
+    west: -3.304063,
+    east: -3.283458
   };
 
-  function routeIntersectsNoGoZone(latlngs) {
-    return latlngs.some(([lat, lon]) => {
-      return (
-        lat >= noGoZone.south &&
-        lat <= noGoZone.north &&
-        lon >= noGoZone.west &&
-        lon <= noGoZone.east
-      );
-    });
-  }
+
+ function routeIntersectsNoGoZone(latlngs) {
+  console.log("Checking latlngs against no-go zone:", latlngs);
+
+  return latlngs.some(([lat, lon]) => {
+    const inside =
+      lat >= noGoZone.south &&
+      lat <= noGoZone.north &&
+      lon >= noGoZone.west &&
+      lon <= noGoZone.east;
+
+    if (inside) {
+      console.warn("🚫 Route intersects no-go zone at:", lat, lon);
+    }
+    return inside;
+  });
+}
+
 
   function generateLoop() {
     if (!lastPosition) {
@@ -192,6 +200,9 @@
     const C = [lat + offset, lon - offset];
 
     const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${A[0]},${A[1]}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
+
+console.log("Attempting route with points:", A, B, C);
+
 
     fetch(url)
       .then(res => res.json())
