@@ -130,18 +130,21 @@ function routeIntersectsNoGoZone(latlngs) {
   });
 }
 
-function tryLoop(lat, lon, attempt = 1) {
+function tryLoop(attempt = 1) {
   if (attempt > maxAttempts) {
     setStatus("🚫 Failed to generate route. All attempts hit no-go zone.");
     return;
   }
 
-  const jitter = offset * (selectedDistance / 6); // scale jitter by distance
-  const jitterLat = Math.random() * jitter;
-  const jitterLon = Math.random() * jitter;
+  const miles = parseFloat(document.querySelector(".bar button.selected")?.textContent) || 6;
+  const offset = miles / 69; // approx degrees for given miles
 
-  const B = [lat - jitterLat, lon + jitterLon];
-  const C = [lat + jitterLat, lon + jitterLon];
+  // Random jitter to create variation in triangle
+  const jitterLat = (Math.random() - 0.5) * offset * 2;
+  const jitterLon = (Math.random() - 0.5) * offset * 2;
+
+  const B = [lat + jitterLat, lon + jitterLon];
+  const C = [lat - jitterLat, lon - jitterLon];
 
   const url = `https://graphhopper.com/api/1/route?point=${lat},${lon}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${lat},${lon}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
 
@@ -150,29 +153,33 @@ function tryLoop(lat, lon, attempt = 1) {
   fetch(url)
     .then(res => res.json())
     .then(data => {
-      if (!data.paths || data.paths.length === 0) {
-        setStatus("No route found.");
-        return;
+      const coords = data.paths?.[0]?.points?.coordinates;
+      if (!coords || coords.length === 0) {
+        console.warn("No coordinates in response");
+        setStatus("⚠️ No route found.");
+        return tryLoop(attempt + 1);
       }
 
-      const coords = data.paths[0].points.coordinates;
       const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+      console.log("🧭 Checking route for no-go zone...");
+      console.log("Checking latlngs against no-go zone:", latlngs);
 
       if (routeIntersectsNoGoZone(latlngs)) {
         console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
-        tryLoop(lat, lon, attempt + 1);
-        return;
+        return tryLoop(attempt + 1);
       }
 
-      const distanceMiles = (data.paths[0].distance / 1609.34).toFixed(2);
-
       if (routeLine) map.removeLayer(routeLine);
+
       routeLine = L.polyline(latlngs, {
         color: "#10b981",
         weight: 4
       }).addTo(map);
 
-      const midPoint = latlngs[Math.floor(latlngs.length / 2)];
+      const distanceMeters = data.paths[0].distance;
+      const distanceMiles = (distanceMeters / 1609.34).toFixed(2);
+      const midIndex = Math.floor(latlngs.length / 2);
+      const midPoint = latlngs[midIndex];
 
       L.popup({
         closeButton: false,
@@ -186,11 +193,12 @@ function tryLoop(lat, lon, attempt = 1) {
       map.fitBounds(routeLine.getBounds());
       setStatus(`✅ Loop generated! Distance: ${distanceMiles} mi`);
     })
-    .catch(err => {
+    .catch((err) => {
       console.error("Routing error:", err);
       setStatus("Routing failed.");
     });
 }
+
 
 function generateLoop() {
   if (!lastPosition) {
