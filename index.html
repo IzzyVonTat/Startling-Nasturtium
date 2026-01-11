@@ -238,8 +238,15 @@ function tryLoop(attempt = 1) {
         setTimeout(() => tryLoop(attempt + 1), 1000);
         return;
       }
+     
+      const distance = data.paths[0].distance / 1609.34; // in miles
 
-      const distance = (data.paths[0].distance / 1609.34).toFixed(2);
+      if (distance < minMiles || distance > maxMiles) {
+        console.warn(`❌ Distance ${distance.toFixed(2)} mi out of bounds. Retrying...`);
+        setTimeout(() => tryLoop(attempt + 1), 1000);
+        return;
+      }
+
       const midPoint = latlngs[Math.floor(latlngs.length / 2)];
 
       routeLine = L.polyline(latlngs, {
@@ -255,10 +262,10 @@ function tryLoop(attempt = 1) {
         className: 'distance-popup'
       })
       .setLatLng(midPoint)
-      .setContent(`${distance} mi`)
+      .setContent(`${distance.toFixed(2)} mi`)
       .openOn(map);
 
-      setStatus(`✅ Route loaded! Distance: ${distance} mi`);
+      setStatus(`✅ Route loaded! Distance: ${distance.toFixed(2)} mi`);
     })
     .catch((err) => {
       console.error("Routing error:", err);
