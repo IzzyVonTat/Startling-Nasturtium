@@ -207,14 +207,17 @@
     return;
   }
 
-  // Bigger jitter range
-  const jitterScale = offset * 2;
-  const jitterLat = Math.random() * offset;   // only positive (south/east)
-  const jitterLon = Math.random() * offset;
+  // Scale offset based on user-selected distance
+  const baseDistance =    parseFloat(document.querySelector('input[name="miles"]:checked').value); // e.g., 6 or 9
+  const offset = baseDistance / 69; // rough degrees per mile (1° ≈ 69mi)
 
-  const B = [lat + jitterLat, lon - jitterLon]; // southeast
-  const C = [lat + jitterLat, lon + jitterLon]; // southwest
+  // Slight randomness, up to ~20%
+  const jitterLat = offset * (0.8 + Math.random() * 0.4);
+  const jitterLon = offset * (0.8 + Math.random() * 0.4);
 
+  // Triangle generation
+  const B = [lat + jitterLat, lon + jitterLon];
+  const C = [lat + jitterLat, lon - jitterLon];
 
   const url = `https://graphhopper.com/api/1/route?point=${lat},${lon}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${lat},${lon}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
 
