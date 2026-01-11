@@ -175,7 +175,7 @@
         lon <= noGoZone.east;
 
       if (inside) {
-        console.warn("🚫 Route intersects no-go zone at:", lat, lon);
+        alert("🚫 Death Road Detected at: " + lat + ", " + lon);
       }
       return inside;
     });
@@ -201,66 +201,70 @@
     const A = [lat, lon];
     const maxAttempts = 5;
 
-    function tryLoop(attempt = 1) {
-      if (attempt > maxAttempts) {
-        setStatus("🚫 Failed to generate route. All attempts hit no-go zone.");
+   function tryLoop(attempt = 1) {
+  if (attempt > maxAttempts) {
+    setStatus("🚫 Failed to generate route. All attempts hit no-go zone.");
+    return;
+  }
+
+  // Bigger jitter range
+  const jitterScale = offset * 2;
+  const jitterLat = (Math.random() - 0.5) * jitterScale;
+  const jitterLon = (Math.random() - 0.5) * jitterScale;
+
+  // Build points with forced shape variance
+  const B = [lat + offset + jitterLat, lon + offset + jitterLon];
+  const C = [lat + offset - jitterLat, lon - offset - jitterLon];
+
+  const url = `https://graphhopper.com/api/1/route?point=${lat},${lon}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${lat},${lon}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
+
+  console.log(`🌀 Attempt ${attempt}: Trying route from ${lat},${lon} → ${B} → ${C}`);
+
+  fetch(url)
+    .then(res => res.json())
+    .then(data => {
+      if (!data.paths || data.paths.length === 0) {
+        console.warn("⚠️ No route found. Retrying...");
+        setTimeout(() => tryLoop(attempt + 1), 1000);
         return;
       }
 
-      const jitter = (Math.random() - 0.5) * offset * 0.8;
-      const B = [lat + offset + jitter, lon + offset - jitter];
-      const C = [lat + offset - jitter, lon - offset + jitter];
+      const coords = data.paths[0].points.coordinates;
+      const latlngs = coords.map(([lon, lat]) => [lat, lon]);
 
-      const url = `https://graphhopper.com/api/1/route?point=${A[0]},${A[1]}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${A[0]},${A[1]}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
+      console.log("🧭 Checking route for no-go zone...");
+      if (routeIntersectsNoGoZone(latlngs)) {
+        console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
+        setTimeout(() => tryLoop(attempt + 1), 1000);
+        return;
+      }
 
-      console.log(`🌀 Attempt ${attempt}: Trying route from ${A} → ${B} → ${C}`);
+      const distance = (data.paths[0].distance / 1609.34).toFixed(2);
+      const midPoint = latlngs[Math.floor(latlngs.length / 2)];
 
-      fetch(url)
-        .then(res => res.json())
-        .then(data => {
-          if (!data.paths || data.paths.length === 0) {
-            console.warn("⚠️ No route found. Retrying...");
-            setTimeout(() => tryLoop(attempt + 1), 1000);
-            return;
-          }
+      routeLine = L.polyline(latlngs, {
+        color: "#10b981",
+        weight: 4
+      }).addTo(map);
 
-          const coords = data.paths[0].points.coordinates;
-          const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+      map.fitBounds(routeLine.getBounds());
 
-          console.log("🧭 Checking route for no-go zone...");
-          if (routeIntersectsNoGoZone(latlngs)) {
-            console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
-            setTimeout(() => tryLoop(attempt + 1), 1000);
-            return;
-          }
+      L.popup({
+        closeButton: false,
+        autoClose: false,
+        className: 'distance-popup'
+      })
+      .setLatLng(midPoint)
+      .setContent(`${distance} mi`)
+      .openOn(map);
 
-          const distance = (data.paths[0].distance / 1609.34).toFixed(2);
-          const midPoint = latlngs[Math.floor(latlngs.length / 2)];
-
-          routeLine = L.polyline(latlngs, {
-            color: "#10b981",
-            weight: 4
-          }).addTo(map);
-
-          map.fitBounds(routeLine.getBounds());
-
-          L.popup({
-            closeButton: false,
-            autoClose: false,
-            className: 'distance-popup'
-          })
-          .setLatLng(midPoint)
-          .setContent(`${distance} mi`)
-          .openOn(map);
-
-          setStatus(`✅ Route loaded! Distance: ${distance} mi`);
-        })
-        .catch((err) => {
-          console.error("Routing error:", err);
-          setStatus("Routing failed.");
-        });
-    }
-
+      setStatus(`✅ Route loaded! Distance: ${distance} mi`);
+    })
+    .catch((err) => {
+      console.error("Routing error:", err);
+      setStatus("Routing failed.");
+    });
+}
     tryLoop();
   }
 </script>
