@@ -85,6 +85,12 @@
 
   const map = L.map("map").setView([55.9533, -3.1883], 12);
 
+// 👇 Customize pan animation duration
+map.options.pan = {
+  animate: true,
+  duration: 1  // seconds (default is ~0.25)
+};
+
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap contributors"
   }).addTo(map);
@@ -193,6 +199,11 @@
       }
 
       const coords = data.paths[0].points.coordinates;
+      const distanceMeters = data.paths[0].distance;
+      const distanceMiles = (distanceMeters / 1609.34).toFixed(2);
+
+      setStatus(`Route loaded! Distance: ${distanceMiles} mi`);
+
       const latlngs = coords.map(([lon, lat]) => [lat, lon]);
 
       if (routeLine) map.removeLayer(routeLine);
