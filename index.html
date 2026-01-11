@@ -199,12 +199,12 @@ map.options.pan = {
       }
 
       const coords = data.paths[0].points.coordinates;
+      const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+      
       const distanceMeters = data.paths[0].distance;
       const distanceMiles = (distanceMeters / 1609.34).toFixed(2);
 
       setStatus(`Route loaded! Distance: ${distanceMiles} mi`);
-
-      const latlngs = coords.map(([lon, lat]) => [lat, lon]);
 
       if (routeLine) map.removeLayer(routeLine);
 
