@@ -2,9 +2,11 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Loop Me (GraphHopper Edition)</title>
+  <title>Loop Me (Dev Mode)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10b981">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="manifest" href="manifest.json">
   <style>
     body {
       margin: 0;
@@ -43,9 +45,9 @@
       font-size: 14px;
     }
     .bar button.primary {
-      background: #111;
+      background: #10b981;
       color: #fff;
-      border-color: #111;
+      border-color: #10b981;
     }
     .bar button:active {
       transform: translateY(1px);
@@ -67,12 +69,16 @@
 <body>
 
 <div class="bar">
-  <button onclick="selectDistance(6)">6 mi</button>
-  <button onclick="selectDistance(9)">9 mi</button>
-  <button onclick="selectDistance(12)">12 mi</button>
-  <button onclick="selectDistance(15)">15 mi</button>
+  <select id="distanceSelect" onchange="onDistanceChange()">
+    <option value="6">6 miles</option>
+    <option value="9" selected>9 miles</option>
+    <option value="12">12 miles</option>
+    <option value="15">15 miles</option>
+  </select>
   <button class="primary" onclick="generateLoop()">Loop me</button>
   <button id="followBtn" onclick="toggleFollow()">📍 Follow Me</button>
+  <button id="customStartBtn" onclick="toggleCustomStart()">📍 Custom Start: OFF</button>
+
 </div>
 
 <div id="map"></div>
@@ -83,21 +89,37 @@
   const GH_API_KEY = "8b7bdd6e-0343-4430-931c-242dea8d7b20";
   let lastPosition = null;
   let routeLine = null;
-
-  const statusEl = document.getElementById("status");
-  const setStatus = (t) => statusEl.textContent = t;
-
-  const map = L.map("map").setView([55.9533, -3.1883], 12);
-  map.options.pan = { animate: true, duration: 1 };
-
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap contributors"
-  }).addTo(map);
-
   let marker = null;
   let accuracyCircle = null;
   let firstFix = true;
   let followUser = true;
+  let useCustomStart = false;  
+  let customStart = null;
+  let customMarker = null;
+
+  const statusEl = document.getElementById("status");
+  const setStatus = (t) => statusEl.textContent = t;
+
+  // Map setup
+  const map = L.map("map").setView([55.9533, -3.1883], 12);
+  map.options.pan = { animate: true, duration: 1 };
+
+  const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors"
+  });
+
+  const esriLayer = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{x}/{y}", {
+    attribution: "Tiles © Esri"
+  });
+
+  osmLayer.addTo(map);
+
+  const baseMaps = {
+    "OpenStreetMap": osmLayer,
+    "Satellite": esriLayer
+  };
+
+  L.control.layers(baseMaps).addTo(map);
 
   function toggleFollow() {
     followUser = !followUser;
@@ -106,6 +128,17 @@
     document.getElementById("followBtn").classList.toggle("primary", followUser);
   }
 
+  function toggleCustomStart() {
+    useCustomStart = !useCustomStart;
+    const btn = document.getElementById("customStartBtn");
+    btn.classList.toggle("primary", useCustomStart);
+    btn.style.background = useCustomStart ? "#10b981" : "#ef4444"; // green / red
+    btn.style.borderColor = useCustomStart ? "#10b981" : "#ef4444";
+    btn.style.color = "#fff";
+    btn.textContent = useCustomStart ? "📍 Custom Start: ON" : "📍 Custom Start: OFF";
+  }
+
+  // Track GPS
   if ("geolocation" in navigator) {
     setStatus("Tracking your location…");
     navigator.geolocation.watchPosition(
@@ -145,6 +178,7 @@
     setStatus("Geolocation not supported");
   }
 
+  // Distance selection
   let selectedMiles = 9;
   let minMiles = 7.2;
   let maxMiles = 10.8;
@@ -157,7 +191,34 @@
     setStatus(`Distance set: ${m} miles (range: ${minMiles.toFixed(2)}–${maxMiles.toFixed(2)})`);
   }
 
-  // 🚫 No-go zone
+  function onDistanceChange() {
+    const m = parseInt(document.getElementById("distanceSelect").value, 10);
+    selectDistance(m);
+  }
+
+  // Set custom start if toggle is ON
+  map.on("click", (e) => {
+    if (!useCustomStart) return;
+
+    customStart = [e.latlng.lat, e.latlng.lng];
+
+    if (customMarker) map.removeLayer(customMarker);
+    customMarker = L.marker(customStart, { draggable: true })
+      .addTo(map)
+      .bindPopup("Custom Start")
+      .openPopup();
+
+  setStatus(`Custom start set at ${customStart[0].toFixed(5)}, ${customStart[1].toFixed(5)}`);
+
+  // Allow repositioning the marker
+  customMarker.on("dragend", function (e) {
+    const pos = e.target.getLatLng();
+    customStart = [pos.lat, pos.lng];
+    setStatus(`Custom start moved to ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`);
+  });
+});
+
+  // Death Road zone
   const noGoZone = {
     north: 56.563270,
     south: 56.550476,
@@ -173,7 +234,6 @@
         lat <= noGoZone.north &&
         lon >= noGoZone.west &&
         lon <= noGoZone.east;
-
       if (inside) {
         alert("🚫 Death Road Detected at: " + lat + ", " + lon);
       }
@@ -181,100 +241,100 @@
     });
   }
 
+  // Generate loop
   function generateLoop() {
     if (!lastPosition) {
       setStatus("Waiting for GPS fix…");
       return;
     }
 
-    // Clear previous route and popup
     if (routeLine) {
       map.removeLayer(routeLine);
       routeLine = null;
     }
     map.closePopup();
 
-    const [lat, lon] = lastPosition;
+    const [lat, lon] = customStart || lastPosition;
     const distanceMeters = selectedMiles * 1609.34;
     const degreesPerMeter = 1 / 111139;
-    const offset = (distanceMeters / 4.5) * degreesPerMeter; // tighter triangle
+    const offset = (distanceMeters / 4.5) * degreesPerMeter;
     const A = [lat, lon];
     const maxAttempts = 5;
 
-function tryLoop(attempt = 1) {
-  if (attempt > maxAttempts) {
-    setStatus("🚫 Failed to generate route. All attempts hit no-go zone.");
-    return;
-  }
-
-  // Expanded jitter range with more varied triangle
-  const jitterLat = (Math.random() * 2 - 1) * offset * 1.8; // +/- latitude
-  const jitterLon = (Math.random() * 2 - 1) * offset * 1.8; // +/- longitude
-  const jitterLat2 = (Math.random() * 2 - 1) * offset * 1.8;
-  const jitterLon2 = (Math.random() * 2 - 1) * offset * 1.8;
-
-  const B = [lat + jitterLat, lon + jitterLon];
-  const C = [lat + jitterLat2, lon + jitterLon2];
-
-  const url = `https://graphhopper.com/api/1/route?point=${lat},${lon}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${lat},${lon}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
-
-  console.log(`🌀 Attempt ${attempt}: Trying route from ${lat},${lon} → ${B[0]},${B[1]} → ${C[0]},${C[1]}`);
-
-  fetch(url)
-    .then(res => res.json())
-    .then(data => {
-      if (!data.paths || data.paths.length === 0) {
-        console.warn("⚠️ No route found. Retrying...");
-        setTimeout(() => tryLoop(attempt + 1), 1000);
+    function tryLoop(attempt = 1) {
+      if (attempt > maxAttempts) {
+        setStatus("🚫 Failed to generate route. All attempts hit no-go zone or were out of bounds.");
         return;
       }
 
-      const coords = data.paths[0].points.coordinates;
-      const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+      const jitterLat = (Math.random() * 2 - 1) * offset * 1.8;
+      const jitterLon = (Math.random() * 2 - 1) * offset * 1.8;
+      const jitterLat2 = (Math.random() * 2 - 1) * offset * 1.8;
+      const jitterLon2 = (Math.random() * 2 - 1) * offset * 1.8;
 
-      console.log("🧭 Checking route for no-go zone...");
-      if (routeIntersectsNoGoZone(latlngs)) {
-        console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
-        setTimeout(() => tryLoop(attempt + 1), 1000);
-        return;
-      }
-     
-      const distance = data.paths[0].distance / 1609.34; // in miles
+      const B = [lat + jitterLat, lon + jitterLon];
+      const C = [lat + jitterLat2, lon + jitterLon2];
 
-      if (distance < minMiles || distance > maxMiles) {
-        console.warn(`❌ Distance ${distance.toFixed(2)} mi out of bounds. Retrying...`);
-        setTimeout(() => tryLoop(attempt + 1), 1000);
-        return;
-      }
+      const url = `https://graphhopper.com/api/1/route?point=${lat},${lon}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${lat},${lon}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
 
-      const midPoint = latlngs[Math.floor(latlngs.length / 2)];
+      console.log(`🌀 Attempt ${attempt}: Trying route from ${lat},${lon} → ${B[0]},${B[1]} → ${C[0]},${C[1]}`);
 
-      routeLine = L.polyline(latlngs, {
-        color: "#10b981",
-        weight: 4
-      }).addTo(map);
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          if (!data.paths || data.paths.length === 0) {
+            console.warn("⚠️ No route found. Retrying...");
+            setTimeout(() => tryLoop(attempt + 1), 1000);
+            return;
+          }
 
-      map.fitBounds(routeLine.getBounds());
+          const coords = data.paths[0].points.coordinates;
+          const latlngs = coords.map(([lon, lat]) => [lat, lon]);
 
-      L.popup({
-        closeButton: false,
-        autoClose: false,
-        className: 'distance-popup'
-      })
-      .setLatLng(midPoint)
-      .setContent(`${distance.toFixed(2)} mi`)
-      .openOn(map);
+          if (routeIntersectsNoGoZone(latlngs)) {
+            console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
+            setTimeout(() => tryLoop(attempt + 1), 1000);
+            return;
+          }
 
-      setStatus(`✅ Route loaded! Distance: ${distance.toFixed(2)} mi`);
-    })
-    .catch((err) => {
-      console.error("Routing error:", err);
-      setStatus("Routing failed.");
-    });
-}
+          const distance = data.paths[0].distance / 1609.34;
+          if (distance < minMiles || distance > maxMiles) {
+            console.warn(`❌ Distance ${distance.toFixed(2)} mi out of bounds. Retrying...`);
+            setTimeout(() => tryLoop(attempt + 1), 1000);
+            return;
+          }
+
+          const midPoint = latlngs[Math.floor(latlngs.length / 2)];
+
+          routeLine = L.polyline(latlngs, {
+            color: "#10b981",
+            weight: 4
+          }).addTo(map);
+
+          map.fitBounds(routeLine.getBounds());
+
+          L.popup({
+            closeButton: false,
+            autoClose: false,
+            className: "distance-popup"
+          })
+          .setLatLng(midPoint)
+          .setContent(`${distance.toFixed(2)} mi`)
+          .openOn(map);
+
+          setStatus(`✅ Route loaded! Distance: ${distance.toFixed(2)} mi`);
+        })
+        .catch((err) => {
+          console.error("Routing error:", err);
+          setStatus("Routing failed.");
+        });
+    }
 
     tryLoop();
   }
+
+  // Init default distance
+  selectDistance(9);
 </script>
 </body>
 </html>
