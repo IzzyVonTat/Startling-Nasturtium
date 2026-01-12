@@ -136,6 +136,18 @@
     btn.style.borderColor = useCustomStart ? "#10b981" : "#ef4444";
     btn.style.color = "#fff";
     btn.textContent = useCustomStart ? "📍 Custom Start: ON" : "📍 Custom Start: OFF";
+  if (!useCustomStart) {
+    // Clear marker and coordinates when toggled off
+    if (customMarker) {
+      map.removeLayer(customMarker);
+      customMarker = null;
+    }
+    customStart = null;
+    setStatus("Custom start disabled. Using current location.");
+  } else {
+    setStatus("Tap the map to set a custom start point.");
+  }
+
   }
 
   // Track GPS
