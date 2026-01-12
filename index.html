@@ -119,8 +119,7 @@
     "Satellite": esriLayer
   };
 
-  L.control.layers(baseMaps, { position: "bottomright" }).addTo(map);
-
+ L.control.layers(baseMaps, null, { position: "bottomright" }).addTo(map);
 
   function toggleFollow() {
     followUser = !followUser;
