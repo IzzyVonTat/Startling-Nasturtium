@@ -96,6 +96,7 @@
   let useCustomStart = false;
   let customStart = null;
   let customMarker = null;
+  let routePopup = null;
 
   const statusEl = document.getElementById("status");
   const setStatus = (t) => statusEl.textContent = t;
@@ -230,64 +231,101 @@
     const degreesPerMeter = 1 / 111139;
     const offset = (distanceMeters / 4.5) * degreesPerMeter;
     const maxAttempts = 5;
+if (routePopup) {
+  map.closePopup(routePopup);
+  routePopup = null;
+}
 
-    function tryLoop(attempt = 1) {
-      if (attempt > maxAttempts) {
-        setStatus("🚫 Failed to generate route.");
-        return;
-      }
 
-      const jitter = () => (Math.random() * 2 - 1) * offset * 1.8;
-      const B = [lon + jitter(), lat + jitter()];
-      const C = [lon + jitter(), lat + jitter()];
+  function tryLoop(attempt = 1) {
+  if (attempt > maxAttempts) {
+    setStatus("🚫 Failed to generate route. All attempts hit no-go zone or were out of bounds.");
+    return;
+  }
 
-      const body = {
-        coordinates: [[lon, lat], B, C, [lon, lat]],
-        format: "geojson",
-        instructions: false,
-        preference: "recommended"
-      };
+  const jitterLat = (Math.random() * 2 - 1) * offset * 1.8;
+  const jitterLon = (Math.random() * 2 - 1) * offset * 1.8;
+  const jitterLat2 = (Math.random() * 2 - 1) * offset * 1.8;
+  const jitterLon2 = (Math.random() * 2 - 1) * offset * 1.8;
 
-      fetch("https://api.openrouteservice.org/v2/directions/foot-walking/", {
-        method: "POST",
-        headers: {
-          "Authorization": ORS_API_KEY,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (!data.features?.length) {
-          setTimeout(() => tryLoop(attempt + 1), 1000);
-          return;
-        }
+  const B = [lon + jitterLon, lat + jitterLat];
+  const C = [lon + jitterLon2, lat + jitterLat2];
 
-        const coords = data.features[0].geometry.coordinates;
-        const latlngs = coords.map(([lon, lat]) => [lat, lon]);
-        const distance = data.features[0].properties.summary.distance / 1609.34;
+  const body = {
+    coordinates: [
+      [lon, lat],
+      B,
+      C,
+      [lon, lat]
+    ],
+    format: "geojson",
+    instructions: false,
+    preference: "recommended"
+  };
 
-        if (routeIntersectsNoGoZone(latlngs) || distance < minMiles || distance > maxMiles) {
-          setTimeout(() => tryLoop(attempt + 1), 1000);
-          return;
-        }
+  console.log(`🌀 Attempt ${attempt}: ORS route via ${lat},${lon}`);
 
-        if (routeLine) map.removeLayer(routeLine);
-        routeLine = L.polyline(latlngs, { color: "#10b981", weight: 4 }).addTo(map);
-
-        map.fitBounds(routeLine.getBounds());
-        L.popup({ closeButton: false, autoClose: false, className: "distance-popup" })
-          .setLatLng(latlngs[Math.floor(latlngs.length / 2)])
-          .setContent(`${distance.toFixed(2)} mi`)
-          .openOn(map);
-
-        setStatus(`✅ Route loaded: ${distance.toFixed(2)} mi`);
-      })
-      .catch(err => {
-        console.error(err);
-        setStatus("Routing error.");
-      });
+  fetch("https://api.openrouteservice.org/v2/directions/foot-walking", {
+    method: "POST",
+    headers: {
+      "Authorization": ORS_API_KEY,
+      "Content-Type": "application/json",
+      "Accept": "application/json, application/geo+json"
+    },
+    body: JSON.stringify(body)
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (!data.features?.length) {
+      console.warn("⚠️ No route found. Retrying...");
+      setTimeout(() => tryLoop(attempt + 1), 1000);
+      return;
     }
+
+    const coords = data.features[0].geometry.coordinates;
+    const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+    const distance = data.features[0].properties.summary.distance / 1609.34;
+
+    // Uncomment below if you want Death Road detection again:
+    /*
+    if (routeIntersectsNoGoZone(latlngs)) {
+      console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
+      setTimeout(() => tryLoop(attempt + 1), 1000);
+      return;
+    }
+    */
+
+    if (distance < minMiles || distance > maxMiles) {
+      console.warn(`❌ Distance ${distance.toFixed(2)} mi out of bounds. Retrying...`);
+      setTimeout(() => tryLoop(attempt + 1), 1000);
+      return;
+    }
+
+    const midPoint = latlngs[Math.floor(latlngs.length / 2)];
+
+    routeLine = L.polyline(latlngs, {
+      color: "#10b981",
+      weight: 4
+    }).addTo(map);
+
+    map.fitBounds(routeLine.getBounds());
+
+    L.popup({
+      closeButton: false,
+      autoClose: false,
+      className: "distance-popup"
+    })
+    .setLatLng(midPoint)
+    .setContent(`${distance.toFixed(2)} mi`)
+    .openOn(map);
+
+    setStatus(`✅ Route loaded! Distance: ${distance.toFixed(2)} mi`);
+  })
+  .catch(err => {
+    console.error("Routing error:", err);
+    setStatus("Routing failed.");
+  });
+}
 
     tryLoop();
   }
@@ -296,4 +334,3 @@
 </script>
 </body>
 </html>
-
