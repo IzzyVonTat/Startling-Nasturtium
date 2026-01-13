@@ -1,30 +1,18 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Loop Me (Dev Mode)</title>
+  <title>Loop Me</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#10b981">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
   <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
   <style>
-    body {
-      margin: 0;
-      font-family: system-ui, sans-serif;
-    }
-    #map {
-      height: 100vh;
-    }
-    .status {
-      position: absolute;
-      bottom: 10px;
-      left: 10px;
-      background: white;
-      padding: 8px 12px;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      font-size: 14px;
-    }
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    #map { height: 100vh; }
+
     .bar {
       position: absolute;
       top: 10px;
@@ -33,35 +21,41 @@
       z-index: 1000;
       display: flex;
       gap: 8px;
-      flex-wrap: nowrap;
       overflow-x: auto;
     }
-    .bar button {
+
+    .bar select, .bar button {
       background: white;
       border: 1px solid #ccc;
       border-radius: 12px;
       padding: 10px 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
       font-size: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
     }
+
     .bar button.primary {
       background: #10b981;
       color: #fff;
       border-color: #10b981;
     }
-    .bar button:active {
-      transform: translateY(1px);
+
+    .status {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
     }
-    .bar::-webkit-scrollbar {
-      display: none;
-    }
+
     .distance-popup {
       background: #10b981;
       color: white;
       padding: 6px 10px;
       border-radius: 8px;
       font-weight: bold;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
       font-size: 13px;
     }
   </style>
@@ -69,276 +63,156 @@
 <body>
 
 <div class="bar">
-  <select id="distanceSelect" onchange="onDistanceChange()">
+  <select id="distance">
     <option value="6">6 miles</option>
     <option value="9" selected>9 miles</option>
     <option value="12">12 miles</option>
     <option value="15">15 miles</option>
   </select>
   <button class="primary" onclick="generateLoop()">Loop me</button>
-  <button id="followBtn" onclick="toggleFollow()">📍 Follow Me</button>
-  <button id="customStartBtn" onclick="toggleCustomStart()">📍 Custom Start: OFF</button>
+  <button id="followBtn" onclick="toggleFollow()">📍 Follow</button>
+  <button id="customBtn" onclick="toggleCustom()">📍 Custom start</button>
 </div>
 
 <div id="map"></div>
-<div class="status" id="status">Loading…</div>
+<div class="status" id="status">Starting…</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjQwZGVjNjQyZjYxMzQ2YjA5OTgwZDk0Y2QyMGU5NGIzIiwiaCI6Im11cm11cjY0In0="; // ⬆️ Replace this with your key
+  /* ================= CONFIG ================= */
 
-  let lastPosition = null;
-  let routeLine = null;
-  let marker = null;
-  let accuracyCircle = null;
+  const ORS_API_KEY = "PUT_YOUR_ORS_KEY_HERE";
+
+  /* ================= STATE ================= */
+
+  let lastPos = null;
+  let follow = true;
   let firstFix = true;
-  let followUser = true;
-  let useCustomStart = false;
   let customStart = null;
-  let customMarker = null;
+
+  let userMarker = null;
+  let accuracyCircle = null;
+  let routeLine = null;
   let routePopup = null;
 
-  const statusEl = document.getElementById("status");
-  const setStatus = (t) => statusEl.textContent = t;
+  /* ================= MAP ================= */
 
   const map = L.map("map").setView([55.9533, -3.1883], 12);
 
-  const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap contributors"
-  });
+  const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
+  const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{x}/{y}");
 
-  const esriLayer = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{x}/{y}", {
-    attribution: "Tiles © Esri"
-  });
+  osm.addTo(map);
+  L.control.layers({ "Map": osm, "Satellite": sat }, null, { position: "bottomright" }).addTo(map);
 
-  osmLayer.addTo(map);
-  L.control.layers({ "OpenStreetMap": osmLayer, "Satellite": esriLayer }, null, { position: "bottomright" }).addTo(map);
+  const statusEl = document.getElementById("status");
+  const setStatus = t => statusEl.textContent = t;
 
-  function toggleFollow() {
-    followUser = !followUser;
-    if (followUser) firstFix = true;
-    setStatus(`Follow mode: ${followUser ? 'ON' : 'OFF'}`);
-    document.getElementById("followBtn").classList.toggle("primary", followUser);
-  }
-
-  function toggleCustomStart() {
-    useCustomStart = !useCustomStart;
-    const btn = document.getElementById("customStartBtn");
-    btn.classList.toggle("primary", useCustomStart);
-    btn.style.background = useCustomStart ? "#10b981" : "#ef4444";
-    btn.style.borderColor = useCustomStart ? "#10b981" : "#ef4444";
-    btn.style.color = "#fff";
-    btn.textContent = useCustomStart ? "📍 Custom Start: ON" : "📍 Custom Start: OFF";
-    if (!useCustomStart && customMarker) {
-      map.removeLayer(customMarker);
-      customMarker = null;
-      customStart = null;
-      setStatus("Custom start disabled. Using current location.");
-    } else {
-      setStatus("Tap the map to set a custom start point.");
-    }
-  }
+  /* ================= GEOLOCATION ================= */
 
   if ("geolocation" in navigator) {
-    setStatus("Tracking your location…");
-    navigator.geolocation.watchPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        const accuracy = pos.coords.accuracy;
-        lastPosition = [lat, lon];
+    navigator.geolocation.watchPosition(pos => {
+      const { latitude, longitude, accuracy } = pos.coords;
+      lastPos = [latitude, longitude];
 
-        if (followUser) {
-          if (firstFix) {
-            map.setView([lat, lon], 18);
-            firstFix = false;
-          } else {
-            map.panTo([lat, lon], { animate: true });
-          }
-        }
+      if (follow) {
+        map[firstFix ? "setView" : "panTo"]([latitude, longitude], firstFix ? 18 : undefined);
+        firstFix = false;
+      }
 
-        if (marker) map.removeLayer(marker);
-        marker = L.marker([lat, lon]).addTo(map).bindPopup("You are here");
+      if (userMarker) map.removeLayer(userMarker);
+      userMarker = L.marker([latitude, longitude]).addTo(map);
 
-        if (accuracyCircle) map.removeLayer(accuracyCircle);
-        accuracyCircle = L.circle([lat, lon], {
-          radius: Math.max(accuracy, 15),
-          color: "#3b82f6",
-          fillColor: "#3b82f6",
-          fillOpacity: 0.12,
-          weight: 2
-        }).addTo(map);
+      if (accuracyCircle) map.removeLayer(accuracyCircle);
+      accuracyCircle = L.circle([latitude, longitude], {
+        radius: Math.max(accuracy, 15),
+        color: "#3b82f6",
+        fillOpacity: 0.12
+      }).addTo(map);
 
-        setStatus(`Tracking (±${Math.round(accuracy)}m)`);
-      },
-      () => setStatus("Could not track location"),
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
-    );
+      setStatus(`Tracking ±${Math.round(accuracy)}m`);
+    });
   } else {
     setStatus("Geolocation not supported");
   }
 
-  let selectedMiles = 9;
-  let minMiles = 7.2;
-  let maxMiles = 10.8;
+  /* ================= CONTROLS ================= */
 
-  function selectDistance(m) {
-    selectedMiles = m;
-    const tolerance = 0.2;
-    minMiles = m * (1 - tolerance);
-    maxMiles = m * (1 + tolerance);
-    setStatus(`Distance set: ${m} miles (range: ${minMiles.toFixed(2)}–${maxMiles.toFixed(2)})`);
+  function toggleFollow() {
+    follow = !follow;
+    firstFix = true;
+    document.getElementById("followBtn").classList.toggle("primary", follow);
   }
 
-  function onDistanceChange() {
-    selectDistance(parseInt(document.getElementById("distanceSelect").value, 10));
-  }
-
-  map.on("click", (e) => {
-    if (!useCustomStart) return;
-
-    customStart = [e.latlng.lat, e.latlng.lng];
-    if (customMarker) map.removeLayer(customMarker);
-
-    customMarker = L.marker(customStart, { draggable: true })
-      .addTo(map)
-      .bindPopup("Custom Start")
-      .openPopup();
-
-    setStatus(`Custom start set at ${customStart[0].toFixed(5)}, ${customStart[1].toFixed(5)}`);
-
-    customMarker.on("dragend", function (e) {
-      const pos = e.target.getLatLng();
-      customStart = [pos.lat, pos.lng];
-      setStatus(`Custom start moved to ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`);
+  function toggleCustom() {
+    customStart = null;
+    setStatus("Tap map to set custom start");
+    map.once("click", e => {
+      customStart = [e.latlng.lat, e.latlng.lng];
+      L.marker(customStart).addTo(map);
+      setStatus("Custom start set");
     });
-  });
-
-  const noGoZone = {
-    north: 56.563270,
-    south: 56.550476,
-    west: -3.304063,
-    east: -3.283458
-  };
-
-  function routeIntersectsNoGoZone(latlngs) {
-    return latlngs.some(([lat, lon]) => lat >= noGoZone.south && lat <= noGoZone.north && lon >= noGoZone.west && lon <= noGoZone.east);
   }
+
+  /* ================= ROUTING ================= */
 
   function generateLoop() {
-    if (!lastPosition && !customStart) {
-      setStatus("Waiting for GPS fix…");
+    const start = customStart ?? lastPos;
+    if (!start) {
+      setStatus("Waiting for GPS…");
       return;
-  }
+    }
 
-    const [lat, lon] = customStart || lastPosition;
-    const distanceMeters = selectedMiles * 1609.34;
-    const degreesPerMeter = 1 / 111139;
-    const offset = (distanceMeters / 4.5) * degreesPerMeter;
-    const maxAttempts = 5;
-if (routePopup) {
-  map.closePopup(routePopup);
-  routePopup = null;
-}
+    const miles = +document.getElementById("distance").value;
+    const meters = miles * 1609.34;
+    const offset = (meters / 3.2) / 111139;
 
+    const [lat, lon] = start;
 
-  function tryLoop(attempt = 1) {
-  if (attempt > maxAttempts) {
-    setStatus("🚫 Failed to generate route. All attempts hit no-go zone or were out of bounds.");
-    return;
-  }
+    const jitter = () => (Math.random() * 2 - 1) * offset;
 
-  const jitterLat = (Math.random() * 2 - 1) * offset * 1.8;
-  const jitterLon = (Math.random() * 2 - 1) * offset * 1.8;
-  const jitterLat2 = (Math.random() * 2 - 1) * offset * 1.8;
-  const jitterLon2 = (Math.random() * 2 - 1) * offset * 1.8;
-
-  const B = [lon + jitterLon, lat + jitterLat];
-  const C = [lon + jitterLon2, lat + jitterLat2];
-
-  const body = {
-    coordinates: [
+    const coords = [
       [lon, lat],
-      B,
-      C,
+      [lon + jitter(), lat + jitter()],
+      [lon + jitter(), lat + jitter()],
       [lon, lat]
-    ],
-    format: "geojson",
-    instructions: false,
-    preference: "recommended"
-  };
+    ];
 
-  console.log(`🌀 Attempt ${attempt}: ORS route via ${lat},${lon}`);
-
-  fetch("https://api.openrouteservice.org/v2/directions/foot-walking"), {
-    method: "POST",
-    headers: {
-      "Authorization": ORS_API_KEY,
-      "Content-Type": "application/json",
-      "Accept": "application/json, application/geo+json"
-    },
-    body: JSON.stringify(body)
-  })
-  .then(res => res.json())
-  .then(data => {
-    if (!data.features?.length) {
-      console.warn("⚠️ No route found. Retrying...");
-      setTimeout(() => tryLoop(attempt + 1), 1000);
-      return;
-    }
-
-    const coords = data.features[0].geometry.coordinates;
-    const latlngs = coords.map(([lon, lat]) => [lat, lon]);
-    const distance = data.features[0].properties.summary.distance / 1609.34;
-    
-    if (routeIntersectsNoGoZone(latlngs)) {
-      console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
-      setTimeout(() => tryLoop(attempt + 1), 1000);
-      return;
-    }
-
-    if (distance < minMiles || distance > maxMiles) {
-      console.warn(`❌ Distance ${distance.toFixed(2)} mi out of bounds. Retrying...`);
-      setTimeout(() => tryLoop(attempt + 1), 1000);
-      return;
-    }
-
-    const midPoint = latlngs[Math.floor(latlngs.length / 2)];
-
-    routeLine = L.polyline(latlngs, {
-      color: "#10b981",
-      weight: 4
-    }).addTo(map);
-
-    map.fitBounds(routeLine.getBounds());
-
-    if (routePopup) map.closePopup(routePopup);
-    
-    routePopup = L.popup({
-      closeButton: false,
-      autoClose: false,
-      className: "distance-popup"
+    fetch("https://api.openrouteservice.org/v2/directions/foot-walking", {
+      method: "POST",
+      headers: {
+        "Authorization": ORS_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/geo+json"
+      },
+      body: JSON.stringify({
+        coordinates: coords,
+        instructions: false,
+        options: { avoid_features: ["highways"] }
+      })
     })
-    .setLatLng(midPoint)
-    .setContent(`${distance.toFixed(2)} mi`)
-    .openOn(map);
+    .then(r => r.json())
+    .then(data => {
+      if (!data.features?.length) throw "No route";
 
-    setStatus(`✅ Route loaded! Distance: ${distance.toFixed(2)} mi`);
-  })
-  .catch(err => {
-    console.error("Routing error:", err);
-    setStatus("Routing failed.");
-  });
-}
+      const geo = data.features[0];
+      const latlngs = geo.geometry.coordinates.map(c => [c[1], c[0]]);
+      const dist = geo.properties.summary.distance / 1609.34;
 
-    tryLoop();
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = L.polyline(latlngs, { color: "#10b981", weight: 4 }).addTo(map);
+      map.fitBounds(routeLine.getBounds());
+
+      if (routePopup) map.closePopup(routePopup);
+      routePopup = L.popup({ className: "distance-popup", closeButton: false })
+        .setLatLng(latlngs[Math.floor(latlngs.length / 2)])
+        .setContent(`${dist.toFixed(2)} mi`)
+        .openOn(map);
+
+      setStatus("Route ready");
+    })
+    .catch(() => setStatus("Routing failed – try again"));
   }
-
-  selectDistance(9);
 </script>
 </body>
 </html>
-
-
-
-
