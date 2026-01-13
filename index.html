@@ -226,6 +226,11 @@
   }
 
   function generateLoop() {
+    if (!lastPosition && !customStart) {
+      setStatus("Waiting for GPS fix…");
+      return;
+  }
+
     const [lat, lon] = customStart || lastPosition;
     const distanceMeters = selectedMiles * 1609.34;
     const degreesPerMeter = 1 / 111139;
@@ -334,3 +339,4 @@ if (routePopup) {
 </script>
 </body>
 </html>
+
