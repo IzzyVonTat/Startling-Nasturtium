@@ -315,7 +315,9 @@ if (routePopup) {
 
     map.fitBounds(routeLine.getBounds());
 
-    L.popup({
+    if (routePopup) map.closePopup(routePopup);
+    
+    routePopup = L.popup({
       closeButton: false,
       autoClose: false,
       className: "distance-popup"
@@ -339,4 +341,5 @@ if (routePopup) {
 </script>
 </body>
 </html>
+
 
