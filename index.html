@@ -270,7 +270,7 @@ if (routePopup) {
 
   console.log(`🌀 Attempt ${attempt}: ORS route via ${lat},${lon}`);
 
-  fetch("https://api.openrouteservice.org/v2/directions/foot-walking", {
+  fetch("https://api.openrouteservice.org/v2/directions/foot-walking"), {
     method: "POST",
     headers: {
       "Authorization": ORS_API_KEY,
@@ -341,5 +341,6 @@ if (routePopup) {
 </script>
 </body>
 </html>
+
 
 
