@@ -290,15 +290,12 @@ if (routePopup) {
     const coords = data.features[0].geometry.coordinates;
     const latlngs = coords.map(([lon, lat]) => [lat, lon]);
     const distance = data.features[0].properties.summary.distance / 1609.34;
-
-    // Uncomment below if you want Death Road detection again:
-    /*
+    
     if (routeIntersectsNoGoZone(latlngs)) {
       console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
       setTimeout(() => tryLoop(attempt + 1), 1000);
       return;
     }
-    */
 
     if (distance < minMiles || distance > maxMiles) {
       console.warn(`❌ Distance ${distance.toFixed(2)} mi out of bounds. Retrying...`);
@@ -341,6 +338,7 @@ if (routePopup) {
 </script>
 </body>
 </html>
+
 
 
 
