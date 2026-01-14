@@ -78,6 +78,7 @@
   <button class="primary" onclick="generateLoop()">Loop me</button>
   <button id="followBtn" onclick="toggleFollow()">📍 Follow Me</button>
   <button id="customStartBtn" onclick="toggleCustomStart()">📍 Custom Start: OFF</button>
+  <button onclick="reloadLastRoute()">🔁 Reload route</button>
 
 </div>
 
@@ -208,6 +209,32 @@
     selectDistance(m);
   }
 
+ function reloadLastRoute() {
+  const saved = localStorage.getItem("lastRoute");
+  if (!saved) {
+    setStatus("No saved route to reload");
+    return;
+  }
+
+  const latlngs = JSON.parse(saved);
+  const distance = parseFloat(localStorage.getItem("lastDistance"));
+
+  if (routeLine) map.removeLayer(routeLine);
+
+  routeLine = L.polyline(latlngs, {
+    color: "#10b981",
+    weight: 4
+  }).addTo(map);
+
+  map.fitBounds(routeLine.getBounds());
+
+  if (!isNaN(distance)) {
+    setStatus(`Reloaded route (${distance.toFixed(2)} mi)`);
+  } else {
+    setStatus("Reloaded route");
+  }
+}
+
   // Set custom start if toggle is ON
   map.on("click", (e) => {
     if (!useCustomStart) return;
@@ -324,6 +351,10 @@
           }).addTo(map);
 
           map.fitBounds(routeLine.getBounds());
+
+        // ✅ Save route for reload
+        localStorage.setItem("lastRoute", JSON.stringify(latlngs));
+        localStorage.setItem("lastDistance", dist);
 
           L.popup({
             closeButton: false,
