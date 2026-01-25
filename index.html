@@ -76,17 +76,18 @@
     <option value="15">15 miles</option>
   </select>
   <button class="primary" onclick="generateLoop()">Loop me</button>
-  <button id="followBtn" onclick="toggleFollow()">📍 Follow Me</button>
-  <button id="customStartBtn" onclick="toggleCustomStart()">📍 Custom Start: OFF</button>
-  <button onclick="reloadLastRoute()">🔁 Reload route</button>
+  <button id="followBtn" onclick="toggleFollow()"> Follow Me</button>
+  <button id="customStartBtn" onclick="toggleCustomStart()"> Custom Start: OFF</button>
+  <button onclick="reloadLastRoute()"> Reload route</button>
 
 </div>
 
 <div id="map"></div>
-<div class="status" id="status">Loading…</div>
+<div class="status" id="status">Loading...</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+
   const GH_API_KEY = "8b7bdd6e-0343-4430-931c-242dea8d7b20";
   let lastPosition = null;
   let routeLine = null;
@@ -122,21 +123,27 @@
 
  L.control.layers(baseMaps, null, { position: "bottomright" }).addTo(map);
 
-  function toggleFollow() {
-    followUser = !followUser;
-    if (followUser) firstFix = true;
-    setStatus(`Follow mode: ${followUser ? 'ON' : 'OFF'}`);
-    document.getElementById("followBtn").classList.toggle("primary", followUser);
-  }
+   function toggleFollow() {
+     followUser = !followUser;
+     if (followUser) firstFix = true;
+
+     const btn = document.getElementById("followBtn");
+     btn.classList.toggle("primary", followUser);
+     btn.textContent = followUser ? " Follow Me" : " Explore";
+
+     setStatus(`Follow mode: ${followUser ? 'ON' : 'Explore'}`);
+}
+ 
 
   function toggleCustomStart() {
     useCustomStart = !useCustomStart;
+    if (useCustomStart) followUser = false;
     const btn = document.getElementById("customStartBtn");
     btn.classList.toggle("primary", useCustomStart);
     btn.style.background = useCustomStart ? "#10b981" : "#ef4444"; // green / red
     btn.style.borderColor = useCustomStart ? "#10b981" : "#ef4444";
     btn.style.color = "#fff";
-    btn.textContent = useCustomStart ? "📍 Custom Start: ON" : "📍 Custom Start: OFF";
+    btn.textContent = useCustomStart ? " Custom Start: ON" : " Custom Start: OFF";
   if (!useCustomStart) {
     // Clear marker and coordinates when toggled off
     if (customMarker) {
@@ -153,7 +160,7 @@
 
   // Track GPS
   if ("geolocation" in navigator) {
-    setStatus("Tracking your location…");
+    setStatus("Tracking your location...");
     navigator.geolocation.watchPosition(
       (pos) => {
         const lat = pos.coords.latitude;
@@ -182,7 +189,7 @@
           weight: 2
         }).addTo(map);
 
-        setStatus(`Tracking (±${Math.round(accuracy)}m)`);
+        setStatus(`Tracking (+/-${Math.round(accuracy)}m)`);
       },
       () => setStatus("Could not track location"),
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
@@ -201,7 +208,8 @@
     const tolerance = 0.2;
     minMiles = m * (1 - tolerance);
     maxMiles = m * (1 + tolerance);
-    setStatus(`Distance set: ${m} miles (range: ${minMiles.toFixed(2)}–${maxMiles.toFixed(2)})`);
+    setStatus(`Distance set: ${m} miles (range: ${minMiles.toFixed(2)} to ${maxMiles.toFixed(2)})`);
+
   }
 
   function onDistanceChange() {
@@ -226,7 +234,9 @@
     weight: 4
   }).addTo(map);
 
-  map.fitBounds(routeLine.getBounds());
+  if (followUser) {
+    map.fitBounds(routeLine.getBounds());
+}
 
   if (!isNaN(distance)) {
     setStatus(`Reloaded route (${distance.toFixed(2)} mi)`);
@@ -264,6 +274,31 @@
     west: -3.304063,
     east: -3.283458
   };
+   
+  
+   function pointInsideNoGo([lat, lon]) {
+     return (
+       lat >= noGoZone.south &&
+       lat <= noGoZone.north &&
+       lon >= noGoZone.west &&
+       lon <= noGoZone.east
+     );
+   }
+
+
+  function randomPointAwayFromNoGo(lat, lon, offset) {
+    let tries = 0;
+    while (tries < 10) {
+      const jLat = (Math.random() * 2 - 1) * offset * 1.8;
+      const jLon = (Math.random() * 2 - 1) * offset * 1.8;
+      const p = [lat + jLat, lon + jLon];
+
+    if (!pointInsideNoGo(p)) return p;
+    tries++;
+  }
+  return [lat, lon]; // fallback
+}
+
 
   function routeIntersectsNoGoZone(latlngs) {
     console.log("Checking latlngs against no-go zone:", latlngs);
@@ -274,7 +309,7 @@
         lon >= noGoZone.west &&
         lon <= noGoZone.east;
       if (inside) {
-        alert("🚫 Death Road Detected at: " + lat + ", " + lon);
+        alert(" Death Road Detected");
       }
       return inside;
     });
@@ -283,7 +318,7 @@
   // Generate loop
   function generateLoop() {
     if (!lastPosition) {
-      setStatus("Waiting for GPS fix…");
+      setStatus("Waiting for GPS fix...");
       return;
     }
 
@@ -302,27 +337,23 @@
 
     function tryLoop(attempt = 1) {
       if (attempt > maxAttempts) {
-        setStatus("🚫 Failed to generate route. All attempts hit no-go zone or were out of bounds.");
+        setStatus(" Failed to generate route. All attempts hit no-go zone or were out of bounds.");
         return;
       }
 
-      const jitterLat = (Math.random() * 2 - 1) * offset * 1.8;
-      const jitterLon = (Math.random() * 2 - 1) * offset * 1.8;
-      const jitterLat2 = (Math.random() * 2 - 1) * offset * 1.8;
-      const jitterLon2 = (Math.random() * 2 - 1) * offset * 1.8;
+      const B = randomPointAwayFromNoGo(lat, lon, offset);
+      const C = randomPointAwayFromNoGo(lat, lon, offset);
 
-      const B = [lat + jitterLat, lon + jitterLon];
-      const C = [lat + jitterLat2, lon + jitterLon2];
 
       const url = `https://graphhopper.com/api/1/route?point=${lat},${lon}&point=${B[0]},${B[1]}&point=${C[0]},${C[1]}&point=${lat},${lon}&vehicle=foot&locale=en&points_encoded=false&key=${GH_API_KEY}`;
 
-      console.log(`🌀 Attempt ${attempt}: Trying route from ${lat},${lon} → ${B[0]},${B[1]} → ${C[0]},${C[1]}`);
+      console.log(` Attempt ${attempt}: Trying route from ${lat},${lon} → ${B[0]},${B[1]} → ${C[0]},${C[1]}`);
 
       fetch(url)
         .then(res => res.json())
         .then(data => {
           if (!data.paths || data.paths.length === 0) {
-            console.warn("⚠️ No route found. Retrying...");
+            console.warn(" No route found. Retrying...");
             setTimeout(() => tryLoop(attempt + 1), 1000);
             return;
           }
@@ -331,14 +362,14 @@
           const latlngs = coords.map(([lon, lat]) => [lat, lon]);
 
           if (routeIntersectsNoGoZone(latlngs)) {
-            console.log(`🚫 Attempt ${attempt}: Route hits no-go zone.`);
+            console.log(` Attempt ${attempt}: Route hits no-go zone.`);
             setTimeout(() => tryLoop(attempt + 1), 1000);
             return;
           }
 
           const distance = data.paths[0].distance / 1609.34;
           if (distance < minMiles || distance > maxMiles) {
-            console.warn(`❌ Distance ${distance.toFixed(2)} mi out of bounds. Retrying...`);
+            console.warn(` Distance ${distance.toFixed(2)} mi out of bounds. Retrying...`);
             setTimeout(() => tryLoop(attempt + 1), 1000);
             return;
           }
@@ -350,9 +381,10 @@
             weight: 4
           }).addTo(map);
 
-          map.fitBounds(routeLine.getBounds());
-
-        // ✅ Save route for reload
+         if (followUser) {
+           map.fitBounds(routeLine.getBounds());
+  }
+        //  Save route for reload
         localStorage.setItem("lastRoute", JSON.stringify(latlngs));
         localStorage.setItem("lastDistance", distance);
 
@@ -365,13 +397,14 @@
           .setContent(`${distance.toFixed(2)} mi`)
           .openOn(map);
 
-          setStatus(`✅ Route loaded! Distance: ${distance.toFixed(2)} mi`);
+          setStatus(` Route loaded! Distance: ${distance.toFixed(2)} mi`);
         })
         .catch((err) => {
           console.error("Routing error:", err);
           setStatus("Routing failed.");
-        });
-    }
+    });
+
+  }
 
     tryLoop();
   }
